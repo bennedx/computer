@@ -1,0 +1,405 @@
+Flags	fff	g
+	0	000	0	zero
+	1	001	1	carry
+	2	010		Overflow
+	3	011		subtract (true if last instruction was a sub)
+	4	100		sign: 0=pos, 1=neg
+	5	101		undefined
+	6	110		undefined
+	7	111		true (always true); used for unconditional jumps and such, (the not flag will make the jump do nothing; this is useful if the jumps are an optimized table where a register is set in the address part, then the rest are skipped
+	
+	
+	0			memory hold--memory is processing and stopping us from continuing
+	1			ALU hold--the ALU is processing and stopping us from continuing
+	2			fetch mode: 0=memory, 1=port
+	
+	
+	
+	nfff		not+flags; not is 0=flag, 1=not flag; eg, 1001 is NC (not carry)
+
+
+
+
+Traps
+	0			stack overflow; 
+	
+Instructions
+		8-bit	top two bits are
+					00	control
+					01	math, logic
+					10	JMP
+					11	CALL
+
+Instructions:  control (00)
+		00			0000 0000			NOP
+
+		01			0000 0001			HALT
+
+		02			0000 1001			RET
+			return from call
+			
+			Example
+				RET				0000 1001		02				return from call
+																	00	FETCHINC	PC(H), (SP)		; get high byte of return address
+																	01	FETCH		PC(L), (SP)		; get low byte of return address
+																	02	END							; end instruction
+																	
+		03			0000 1010 bsize		RET	bsize
+			return from call, but also pop bsize bytes from stack
+			
+			Example
+				RET		17		0000 1010		03 17			return from call, pop 17 hex bytes from stack
+																	00	FETCH		ALUL, (PC)		; get bsize
+
+																	01	FETCHINC	PC(H), (SP)		; get upper part of return address
+																	02	FETCHINC	PC(L), (SP)		; get lower part of return address
+																	
+																	03	SET			ALUR, SP(L)		; get lower part of SP
+																	04	ADD			SP(L)			; add bsize and save result to lower part of SP
+																	05	SET			ALUL, SP(H)		; get upper byte of stack
+																	06	INCIF		C, SP(H)		; increment ALUL into SP(H) if carry flag set
+																	
+																	07	END							; end instruction
+
+		04			0000 0100 bsize		ENTER bsize
+			Adds a stack frame
+			A stack frame is a block of bytes on the stack for local data, along with control information
+			
+			On completion:
+				(SP)		SP before this instuction; 'POP SP' will remove the frame
+				(FP)		previous 16-bit value of FP; above that is 16-bit return address
+				FP+offset	parameters; they are pushed in order, so first parameter is highest up; the last parameter is at FP+2 (assuming the language does it this way)
+				FP-offset	local data; the use is determined by the program; bsize bytes are available (from FP-size to FP-1)
+				(data)		the local data area is filled with 00
+			
+			FRAME effectively does this in microcode
+				PUSH	FP			; save the caller's frame pointer
+				LOAD	FP, SP		; set the frame to the stack pointer
+				SUB		SP, rrr		; move SP to beneath the frame; rrr can be an 8-bit register or an offset byte following the instruction
+				LOAD	MR, SP		; set the internal memory register to SP
+				LOAD	IC, rrr		; set the internal counter to the size of the frame
+				FILL	0			; fill IC bytes with 0, starting at MR
+				PUSH	FP			; save the previous stack pointer
+				
+			Example:
+				ENTER	20			; create a frame with 20 bytes in it
+				...
+				EXIT	4			; restores, SP, FP, and does a RET 4
+
+		05		0000 0101				EXIT
+		
+				return from a CALL, removing the stack frame
+
+		06		0000 0110 bsize			EXIT bsize
+		
+				return from a CALL, removing the stack frame and another bsize bytes from the static
+
+		
+		10 - 17		0001 0rrr			INC rrr
+		
+			increment a register
+			
+			Example
+				INC		B		0001 0010		12				increment B
+																	00	SET			ALUL, B			; get B0
+																	01	INC			B				; increment ALU-L into B
+																	02	END
+
+		18 - 1F		0001 1xxx			INC xxx
+		
+			increment a register
+			
+			Example
+				INC		HL		0001 1011		1B				increment HL
+																	00	SET			ALUL, L			; get L
+																	01	INC			L				; increment ALU-L back into L
+																	02	SET			ALUL, H			; get H
+																	03	INCIF		C, H			; if carry flag set, increment ALU-L back into H
+																	04	END
+		
+		20 - 27			0010 0rrr			GET rrr
+		
+			get rrr into A
+			if rrr is A, a byte follows that is loaded into A
+			
+			Example
+				GET		B		0010 0010		22				get B into A
+																	01	SET			A, B			; get B into A
+																	02	END
+																	
+				GET		17		0010 0000		20 17			move 17 into ADD
+																	01	FETCHINC	A, (PC)			; get byte at PC into A, increment PC
+																	02	END
+		
+		28 - 2F		0010 1rrr				LOAD rrr[, byte ]
+		
+			move A into rrr
+			
+			Example
+				PUT		B		0010 1010		2A				get A into B
+																	01	SET			B, A			; move A into B
+																	02	END
+																	
+				PUT		A		0010 1000		28				put A into A
+																	01	SET			A, A			; move A into A (effectively NOP)
+																	
+		30 - 33			0011 0oss [ sbyte ]	LOAD A, (ss)  or LOAD A, (ss + 13)
+			
+			get byte from (ss) into A
+			
+			o	has an offset byte following
+			ss	the register to use; 00 means a 16-bit address follows
+
+			Examples
+				LOAD	A, (HL)		0011 0001		31			get byte at (HL) and put it into A		
+																	01	FETCH		A, (HL)			; get byte at HL and put it into ADD
+																	02	END
+			
+				LOAD	A, (SP-12)	0011 0110		36 F4		get byte at (SP-12)
+																	01	SET			ALU-L, SP(L)	; get low byte of SP
+																	02	FETCHINC	R, (PC)			; get offset
+																	03	ADDS		MR(L)			; add signed offset to stack and store in lower MR
+																	04	SET			ALU-L, SP(H)	; get upper part of SP
+																	05	CARRY		MR(H)			; if carry, either inc (!SUB) or dec (SUB) into MR(H)
+																	06	FETCH		A, (MR)			; get value from memory
+																	07	END
+																	
+				LOAD	A, 1234		0011 0000		30			get byte at (1234)
+																	00	FETCHINC	MR(L), (PC)
+																	01	FETCHINC	MR(H), (PC)
+																	02	FETCH		A, (MR)
+																	03	END
+				
+		34 - 37			0011 0oss [ sbyte ]	STORE A, (ss)	or STORE A, (ss + 13)
+
+						00
+
+		
+				
+		
+			
+			
+		3F				0011 1111 sbyte		TEST sbyte
+
+		40 - 4F			0010 nfff			TEST { flag }
+		
+			test flag; if flag true, set TEST flag true
+
+		
+		
+		
+
+		80 - 8F			1000 ngaa			JMP ng, aa
+		90 - 9F			1001 ngaa			CALL ng, aa
+		A0 - A7			1100 00aa			JMP aa
+		A8 - AF			1100 10aa			CALL aa
+		
+			n		
+
+
+		80 - FF			1jnf ffir [ address ]
+									JMP or CALL
+			
+			conditional jump or call
+			
+			address (optional) is one or more of these, in this this order if present
+				boffset		if indirect, 8-bit offset from r
+				dest		if ir=00, this is present; it is a 16-bit address
+										
+			j	0=branch, 1=call
+			n	not flag
+			fff	flag number
+			i	indirect; 0=jump to address in HL; 1=jump to address at (HL)
+			r	register:  0=FP, 1=HL
+			
+		Examples
+			JMP		1234		1001 1100		9B 12 34		jump to hex 1234
+																	00	FETCHINC	ALUL, (PC)		; fetch byte from PC into ALU L register, increment PC
+																	01	FETCHINC	ALUR, (PC)		; fetch byte from PC into ALU R register, increment PC
+																	02	SET			PC(L), ALUL		; set the lower byte of PC to ALUL
+																	03	SET			PC(H), ALUR		; set the upper byte of PC to ALUR
+																	04	END							; end the instuction
+																		
+			JMPIF	NZ, 1234	1100 0000		B0 12 34		if not zero flag, jump to hex 1234
+																	in microcode, the math flags (Z, C, O, SUB, S) refer to the ALU flags; a SET F will set the F register's ALU flags to the ALU's values
+		
+																	00	ENDIF		Z				; we are done with this instruction if the zero flag is set	
+																	01	(same as JMP dest)
+
+			JMPIF	C, (FP+05)	1000 0110		86 05			if carry flag, jump to 16-bit address at (FP+05)
+																	00	ENDIF		!C				; if C flag not set, end the instruction
+																	01	FETCHINC	ALUL, (PC)		; get next byte at PC into ALU-L, increment PC
+																	02	SET			ALUR, FP(L)		; load left ALU operand with lower byte of FP
+																	03	ADD			MR(L)			; add ALU-L + ALU-R and put result in MR(L)
+																	04	SET			ALUL, FP(H)		; set ALU-L to high byte of FP
+																	05	INCIF		C, MR(H)		; increment if C flag into high byte of MR 
+																	06	FETCHINC	PC(L), (MR)		; get byte at MR, put into PC(L), increment MR
+																	07	FETCHINC	PC(H), (MR)		; get byte at MR, put into PC(H), increment MR
+																	08	END							; end instruction
+																	
+			CALLIF	P, HL		1101 0011		D3 00			if positive or zero (sign=0), jump to address in HL
+																	00	ENDIF		!P				; end command if P flag not set
+
+																	01	SET			MR(L), SP(L)	; set lower memory register from SP(L)
+																	02	SET			MR(H), SP(H)	; set upper MR to SP(H)
+
+																	03	DEC			MR				; decrement MR
+																	04	STOREDEC	(MR), PC(H)		; save upper part of return address, increment MR
+																	05	STORE		(MR), PC(L)		; save lower byte of return address
+																	
+																	01	SET			PC(L), L		; set lower byte of PC to L
+																	02	SET			PC(H), H		; set upper byte of PC to H
+																	
+																	03	END							; end instruction
+																	
+			CALL	(HL+10)		1101 1111		DF 10			call address at (HL+10)
+																	01	SET			MR(L), SP(L)	; set lower memory register from SP(L)
+																	02	SET			MR(H), SP(H)	; set upper MR to SP(H)
+
+																	03	DEC			MR				; decrement MR
+																	04	STOREDEC	(MR), PC(H)		; save upper part of return address, increment MR
+																	05	STORE		(MR), PC(L)		; save lower byte of return address
+
+																	06	FETCHINC	ALUL, (PC)		; get next byte at PC into ALU-L, increment PC
+																	07	SET			ALUR, L			; load left ALU operand with lower byte of L
+																	08	ADD			MR(L)			; add ALU-L + ALU-R and put result in MR(L)
+																	09	SET			ALUL, HALT		; set ALU-L to high byte of HL
+																	0A	INCIF		C, MR(H)		; increment ALU-L if C flag into high byte of MR 
+																	0B	FETCHINC	PC(L), (MR)		; get byte at MR, put into PC(L), increment MR
+																	0C	FETCH		PC(H), (MR)		; get byte at MR, put into PC(H), increment MR
+																	0D	END							; end instruction
+			
+
+			
+		9B	1001 1100	JMP 1234h [9B 
+		E3	1110 0011	JMP NZ, (HL + 00h) 
+			
+			
+			
+			0011 
+
+
+Instructions: 8 bits; instruction may ask for additional bytes if needed
+		00	NOP				0000 0000
+		01	HALT			0000 0001
+		
+		
+		08	JMP				0000 1xxx
+								xxx =	000	unconditional
+										001 undefined
+										010	if Z
+										011	if NZ
+										100 if C
+										101 if NC
+										111 undefined
+										
+Registers
+			rrr
+		A	000			8-bit, accumulator, special target of many instructions
+		F	001			8-bit, flags, special target of many instructions; if FRAME, this means there is a size byte following
+		B	010			8-bit
+		C	011			8-bit
+		D	100			8-bit
+		E	101			8-bit
+		H	110			8-bit
+		L	111			8-bit
+
+			xxx	ss	
+		AF	000			16-bit, A+F treated as a single value
+		BC	001			16-bit, B+C treated as single value
+		DE	010			16-bit, D+E treated as single value
+		HL	011	01		16-bit, H+L, special indexing features
+		
+		PC	100			16-bit, program counter
+		SP	101	10		16-bit, stack pointer, if used as 'ss', whatever instruction immediately followed by 1 byte, twos complement offset
+		FP	110	11		16-bit, base pointer (used for stack frames), index register, whatever instruction always immediately followed by 1 byte, twos complement offset
+		--	111			undefined
+				00		for jumps, this means the instruction is followed by a 2-byte address
+		
+		IR	--			8-bit, instruction register
+		MR	--			16-bit, memory register
+		LL	--			16-bit, lower limit of stack; default is 0; use LOWER to set the limit
+		X	--			8-bit, internal misc byte
+			
+		
+		Addressing
+			aa
+			00			16-bit address in two bytes following
+			01			HL
+			10			(HL)
+			11			(BP+n)
+						
+		
+			
+			CLEAR			Clear R(CBITS) registers
+							
+			sets one or more registers to 0
+								00000001	cbits (16-bit)
+								00000002	cbits (8-bit)
+								
+			LOAD			load from memory
+							
+							0001 0001 0000 bxxx ADDR	b 	bittage: 0=8bit, 1=16bit
+											xxx	register number
+							
+			STORE			store to memory
+							0001 0010 0000 bxxx ADDR	
+							
+			XFER: transfer value from one register to another
+							0001 0011 bxxx bxxx (from/to)
+			
+			Bitwise operations
+							0010 oper bxxx (A) bxxx (B)
+							
+							oper
+							false		0000	0
+							and			0001	a and b
+							nimply		0002	a and !b
+							
+							
+							A			0000
+							B			0001
+							not A		0010
+							not B		0011
+							A and B		0100
+							A nand B	0101
+							A or B		0110
+							A nor B		0111
+							A xor B		1000
+							A xnor B	1001
+							A imp B		1010
+							A nimp B	1011
+							true		1100
+							false		1101
+							A = B		1110
+							A != B		1111
+			
+			Math			01mm oper bxxx (A) bxxx (B)
+			
+							mm	16-bit int	00
+								32-bit int	01
+								32-bit flt	10
+								64-bit flt	11
+								
+							oper	sooo
+							s		0 = unsigned
+									1 = signed (int only)
+							ooo:
+							A + B
+							A - B
+							A * B
+							A / B
+							A \ B
+							A % B
+							A << B
+							A >> B
+							
+			Control			1000 oper sxxx sxxx
+				
+							oper
+							Reset
+							
+							
+			Flow
+
+
