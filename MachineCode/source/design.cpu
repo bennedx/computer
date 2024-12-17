@@ -1,170 +1,184 @@
-R8 is line 0													; read 8-bit register--data bus
-W8 is line 1													; write 8-bit register--data bus
-R16 is line 2													; read 16-bit register--address bus
-W16 is line 3													; write 16-bit register--address bus
-READMEM is line 4												; read memory to data bus
-WRITEMEM is line 5												; write memory from data bus
-WAITMEM is line 6												; wait for memory operation to complete before continuing (how does this work?)
-																;   there is some kind of signal from memory that means it is done reading or writing register MB
+R8 is line 0;													// read 8-bit register--data bus
+W8 is line 1;													// write 8-bit register--data bus
+R16 is line 2;													// read 16-bit register--address bus
+W16 is line 3;													// write 16-bit register--address bus
+READMEM is line 4;												// read memory to data bus
+WRITEMEM is line 5;												// write memory from data bus
+WAITMEM is line 6;												// wait for memory operation to complete before continuing (how does this work?)
+																//   there is some kind of signal from memory that means it is done reading or writing register MB
 
-jump-t-nz[n] is	write { SET-T-NZ, n into lines 33 34 35 36	}	; commas are optional, but keep it clean (commas are whitespace in this language)
-eoi is write { SET-T, 0 into lines 33 34 35 36 }
+SET-T is line 7;												// when set, whatever value on T is assigned to the counter
+SET-T-NZ is line 8;												// when set, if NZ flag, set value on T to the count
+T is lines 9 - 13;												// this is the microcode counter
+
+set-t[n] is write n into T;										// set a new value for T (if SET-T or SET-T-NZ)
+set-t-nz[n] is write { SET-T-NZ, set-t[n] };
+eoi is write { SET-T, 0 into T };								// the first part of each instruction loads the next instruction, so move to 0 advances PC
 
 // increments/decrements the 16-bit register that is being read16[]'d; this happens before it gets to the address bus
 // if it should be committed, do a write16[] on the same T
-INC-16 is line xx
-DEC-16 is line xx
+INC-16 is line 14;
+DEC-16 is line 15;
 
 // adds the IDX register to the 16-bit address bus (how?)
-ADD-IDX is line xx
+ADD-IDX is line 16;
 
-read8[r] is write R8, r into lines 4 5 6 7 8					; 8-bit register number for reading
-write8[r] is write W8, r into lines 9 A B C D
-read16[rr] is write W16, rr into lines E F G H I
-write16[rr] is write W16, rr into lines ...
+read8[r] is write R8, r into lines 16 - 20;						// 8-bit register number for reading
+write8[r] is write W8, r into lines 21- 25;
+read16[rr] is write W16, rr into lines 26 - 30;
+write16[rr] is write W16, rr into lines 31 - 35;
 
-; CMDALU are the command bits to tell the ALU what to do
-;		0	consider carry (ADC/SBC/RRC/etc)
-;		1	subtract
-;		2-4	operation
-;				0	add/sub
-;				1	and
-;				2	or
-;				3	xor
-;				4	rotate (left; right if subtract set; carry up/down?)
-		
+/*
+CMDALU are the command bits to tell the ALU what to do
+	0	consider carry (ADC/SBC/RRC/etc)
+	1	subtract
+	2-4	operation
+			0	add/sub
+			1	and
+			2	or
+			3	xor
+			4	rotate (left; right if subtract set; carry up/down?)
+*/		
 
-CMDALU-CARRYF is line 20
-CMDALU-SUBF is line 21
-cmdalu[op] is write number into lines 22 23 24 25				; ADD/SUB ADC/SBC AND OR XOR ROR ROL 
+cmdalu-carryf is line 36;
+cmdalu-subf is line 37;
+cmdalu[op] is write number into lines 38 - 41;				// ADD/SUB ADC/SBC AND OR XOR ROR ROL 
 
-; numbers that start with 0 are in binary; everything else is hex
+// numbers that start with 0 are in binary; everything else is hex
 
-CMDALU-ADD is cmdalu[00001]
-CMDALU-SUB is cmdalu[00001] CMDALU-SUBF
-CMDALU-ADC IS cmdalu[00001] CMDALU-CARRYF
-CMDALU-SBC IS cmdalu[00001] CMDALU-SUBF CMDALU-CARRYF
-CMDALU-NEG is cmdalu[00010]
-CMDALU-AND is cmdalu[00011]
-CMDALU-OR  is cmdalu[00100]
-CMDALU-XOR is cmdalu[00101]
-CMDALU-ROL is cmdalu[00110] CMDALU-SUBF
-CMDALU-ROR is cmdalu[00110] 
-CMDALU-RCL is cmdalu[00110] CMDALU-SUBF CMDALU-CARRYF
-CMDALU-RCR is cmdalu[00110] CMDALU-CARRYF
-CMDALU-SLL is cmdalu[00111] CMDALU-SUBF
-CMDALU-SLR is cmdalu[00111]
-CMDALU-SAL is cmdalu[00111] CMDALU-SUBF
-CMDALU-SAR is cmdalu[00111]
-CMDALU-INC is cmdalu[01000]
-CMDALU-DEC is cmdalu[01000] CMDALU-SUBF
+ALU-SUBF is line 42
+ALU-CARRYF is line 43
 
-
-; should these be: Z !NZ is line 16 flag 0
-Z is flag 0 !NZ	line 16											; zero/non zero (Z/NZ)
-C is flag 1 !NC	line 17											; carry/no carry (C/NC)
-O is flag 2 !NO	line 18											; overflow/no overflow (O/NO)
-N is flag 3 !P	line 19											; negative/positive (N/P)
-T is flag 4 !NT	line 1A											; two's complement/not (T/NT)
-
-b is unsigned byte
-sb is signed byte												; a type that describes a byte following the instruction; sb is used for relative jumps
-w is unsigned word												; a type that describes a word following the instruction; w is used for loads, jumps and calls
-f is { Z NZ C NC }												; declare list of simple flags
-g is { O NO N P T NT }											; declare list of other flags
-allf is { Z NZ C NC O NO N P T NT }								; all flags
+alu-add is cmdalu[00001];
+alu-sub is cmdalu[00001] ALU-SUBF;
+alu-adc IS cmdalu[00001] ALU-CARRYF;
+alu-sbc IS cmdalu[00001] ALU-SUBF ALU-CARRYF;
+alu-neg is cmdalu[00010];
+alu-and is cmdalu[00011];
+alu-or  is cmdalu[00100];
+alu-xor is cmdalu[00101];
+alu-rol is cmdalu[00110] ALU-SUBF;
+alu-ror is cmdalu[00110]; 
+alu-rcl is cmdalu[00110] ALU-SUBF ALU-CARRYF;
+alu-rcr is cmdalu[00110] ALU-CARRYF;
+alu-sll is cmdalu[00111] ALU-SUBF;
+alu-slr is cmdalu[00111]
+alu-sal is cmdalu[00111] ALU-SUBF;
+alu-sar is cmdalu[00111]
+alu-inc is cmdalu[01000]
+alu-dec is cmdalu[01000] ALU-SUBF;
 
 
-; 8-bit registers always use the data bus
+// should these be: Z !NZ is line 16 flag 0
+Z !NZ is flag 0	line 44;										// zero/non zero (Z/NZ)
+C !NC is flag 1 line 45;										// carry/no carry (C/NC)
+O !NO is flag 2 line 46;										// overflow/no overflow (O/NO)
+N !P is flag 3 line 47;											// negative/positive (N/P)
+T !NT is flag 4 line 48;										// two's complement/not (T/NT)
 
-A is 8 bit register number 0
-F is 8 bit register number 1
-B is 8 bit register number 2
-C is 8 bit register number 3 
-D is 8 bit register number 4
-E is 8 bit register number 5
-H is 8 bit register number 6 
-L is 8 bit register number 7 
+b is unsigned byte;
+sb is signed byte;												// a type that describes a byte following the instruction; sb is used for relative jumps
+w is unsigned word;												// a type that describes a word following the instruction; w is used for loads, jumps and calls
+f is { Z NZ C NC };												// declare list of simple flags
+g is { O NO N P T NT };											// declare list of other flags
+allf is { Z NZ C NC O NO N P T NT };							// all flags
+
+
+// 8-bit registers always use the data bus
+
+A is 8 bit register 0;
+F is 8 bit register 1;
+B is 8 bit register 2;
+C is 8 bit register 3;
+D is 8 bit register 4;
+E is 8 bit register 5;
+H is 8 bit register 6;
+L is 8 bit register 7;
 
 // these are the 8-bit components of the 16-bit-only registers
 // when referenced this way, they use the data bus
-FPL is 8 bit register number 8
-FPH is 8 bit register number 9 
-SPL is 8 bit register number 10
-SPH is 8 bit register number 11
-PCL is 8 bit register number 12
-PCH is 8 bit register number 13
+FPL is 8 bit register 8;
+FPH is 8 bit register 9;
+SPL is 8 bit register 10;
+SPH is 8 bit register 11;
+PCL is 8 bit register 12;
+PCH is 8 bit register 13;
 
 // map 8 onto 16; because these can be indirectly referenced (eg, 'LD (HL), BC' where the first byte is loaded into C), they must be mapped
-AF:L is A
-AF:H is F
-BC:L is C
-BC:H is B
-DE:L is E
-DE:H is D
-HL:L is L
-HL:H is H
+AF:L is A;
+AF:H is F;
+BC:L is C;
+BC:H is B;
+DE:L is E;
+DE:H is D;
+HL:L is L;
+HL:H is H;
 
-FP:L is FPL
-FP:H is FPH
-SP:L is SPL
-SP:H is SPH
-PC:L is PCL
-PC:H is PCH
+FP:L is FPL;
+FP:H is FPH;
+SP:L is SPL;
+SP:H is SPH;
+PC:L is PCL;
+PC:H is PCH;
 
-ALU-L is 8 bit internal register number 14 						; ALU-L is the left input; any register can be the left input to the ALU
-ALU-R is 8 bit internal register number 15						; ALU-R is the right input to the ALU; for two-input calcs, this MUST be set directly
+ALU-L is 8 bit internal register 49; 						// ALU-L is the left input; any register can be the left input to the ALU
+ALU-R is 8 bit internal register 50;						// ALU-R is the right input to the ALU; for two-input calcs, this MUST be set directly
 
-ALU:L is ALU-L
-ALU:H is ALU-R
+ALU:L is ALU-L;
+ALU:H is ALU-R;
 
-; IDX holds a value that can be added to any 16-bit register
-; when used, it is treated as 16-bit with sign-extension
-IDX is 8 bit internal register number 16
+// 16-bit registers always use the address bus
 
-; 16-bit registers always use the address bus
-
-AF is 16 bit register number 0 
-BC is 16 bit register number 1
-DE is 16 bit register number 2
-HL is 16 bit register number 3
+AF is 16 bit register 0;
+BC is 16 bit register 1;
+DE is 16 bit register 2;
+HL is 16 bit register 3;
 
 // stack pointer
-SP is 16 bit register number 4
+SP is 16 bit register 4;
 
 // frame pointer
-FP is 16 bit register number 5
+FP is 16 bit register 5;
 
 // program counter
-PC is 16 bit register number 6
+PC is 16 bit register 6;
 
 // memory register
-MR is 16 bit internal register number 7
+MR is 16 bit internal register 7;
 
 // ALU:   
-ALU is 16 bit internal register number 9
+ALU is 16 bit internal register 9;
 
+// IDX holds a value that can be added to any 16-bit register
+// this is actually 8 bits, but the top half is sign-extended
+// when used, it is treated as 16-bit with sign-extension
+IDX is 16-bit internal register 16;
+
+
+SET-BUS-0 is line 51;											; when set, the bus contains 0 without reading a register (is this needed?)
+
+HLT is line 52;													; when this is set, the clock stops
 
 (HL8) is
 	must combine
 	read { READMEM read16[HL] }
-	write { WRITEMEM read16[HL] }
+	write { WRITEMEM read16[HL] };
 	
 (HL16) is
 	cannot combine
 	read {
 		// on exit, value is in ALU (the 16-bit version of ALU-L/ALU-R)
 		READMEM read16[HL] write8[ALU-L]
-		READMEM read16[MR] INC-16 write8[ALU-R]
+		READMEM read16[HL] INC-16 write8[ALU-R]
 	}
 	write {
 		// on entry, value must be in ALU
 		WRITEMEM read16[HL] read8[ALU-L]
 		WRITEMEM read16[HL] INC-16 read8[ALU-R]
-	}
+	};
 
 // loads to/from ALU
-(SP16) is
+(SP16AUTO) is
 	cannot combine
 	write {
 		WRITEMEM DEC-16 read16[SP] write16[SP] read8[ALU-L]
@@ -174,7 +188,18 @@ ALU is 16 bit internal register number 9
 		READMEM read16[SP] write8[ALU-L]
 		READMEM INC-16 read16[SP] write16[SP] write8[ALU-R]
 		INC-16 read16[SP] write16[SP]
+	};
+
+(SP16) is
+	cannot combine
+	write {
+		WRITEMEM read16[SP] read8[ALU-L]
+		WRITEMEM read16[SP] INC-16 read8[ALU-R]
 	}
+	read {
+		READMEM read16[SP] write8[ALU-L]
+		READMEM read16[SP] INC-16 write8[ALU-R]
+	};
 
 // loads to/from ALU
 (PC16) is
@@ -183,7 +208,7 @@ ALU is 16 bit internal register number 9
 		READMEM read16[PC] write8[ALU:L]
 		READMEM read16[PC] INC-16 write16[PC] write8[ALU:R]
 		read16[PC] INC-16 write16[PC]
-	}
+	};
 
 (PC8) is
 	cannot combine
@@ -191,31 +216,32 @@ ALU is 16 bit internal register number 9
 		// this reads the value into IDX
 		READMEM read16[PC] write8[IDX]
 		read16[PC] INC-16 write16[PC]
-	}
+	};
 
-ri is { A sb (HL)8 | B C D E H L }
+ri is { A sb (HL8) | B C D E H L };
 
-r is { A F B C D E H L (HL8) (FP+[ri])(8) }								; 'ri' is the value after the +; 'r' represents the actual value of r at runtime
+r is { A F B C D E H L (HL8) (FP+[ri]8) };					// 'ri' is the value after the +; 'r' represents the actual value of r at runtime
 
-rr is { BC DE HL SP FP (HL16) (FP+[ri])(16) }	
+rr is { BC DE HL SP FP (HL16) (FP+[ri]16) };	
 
-v is { A b (HL8) | F B C D E H L (FP+[ri])(8) }
+v is { A b (HL8) | F B C D E H L (FP+[ri]8) };
 
-vv is { w BC DE HL (HL16) (FP+[ri])(16) | SP FP }
+vv is { w BC DE HL (HL16) (FP+[ri]16) | SP FP };
 
-rmulti is { B C L (HL8) (FP+[ri])(8) | A F D E H }
+rmulti is { B C L (HL8) (FP+[ri]8) | A F D E H };
 
-rrmulti is { BC DE HL (HL16) (FP+[ri])(16) | SP FP }						; word value locations (multi-byte)
+rrmulti is { BC DE HL (HL16) (FP+[ri]16) | SP FP };			// word value locations (multi-byte)
 
-(FP+[ri])(8) is
+(FP+[ri]8) is
 	must combine
 
-	before when ri in { sb } {
+	before when ri in { sb } output { ri }
+	{
 		read16[PC] write8[IDX]
 		read16[PC] INC-PC write16[PC]
 	}
 	before when ri in { (HL) } {
-		(HL)8 write8[IDX]
+		(HL8) write8[IDX]
 	}
 	before {
 		read8[ri] write8[IDX]
@@ -224,11 +250,12 @@ rrmulti is { BC DE HL (HL16) (FP+[ri])(16) | SP FP }						; word value locations
 	read { READMEM read16[FP] ADD-IDX }
 	
 	write { WRITEMEM read16[FP] ADD-IDX }
-	
+	;
 
 // uses MR for source/dest
-(FP+[ri])(16) is
-	before when ri in { sb } {
+(FP+[ri]16) is
+	before when ri in { sb } output { sb }
+	{
 		read[(PC8)]
 		read8[ALU-L] write8[IDX]
 	}
@@ -247,135 +274,162 @@ rrmulti is { BC DE HL (HL16) (FP+[ri])(16) | SP FP }						; word value locations
 
 	write {
 		WRITEMEM read16[FP] ADD-IDX read8[MR:L]
+		
+		// this may not be possible, the ADD/INC
+		// maybe the INC-16 makes this ADC (or it's always ADC and sets the carry flag)
 		WRITEMEM read16[FP] ADD-IDX INC-16 read[MR:H]
 	}
+	;
 
 
-inst	NOP																
-inst	HLT																
+// in NOP, the machine code is just the opcode
+// the opcode keyword represents a one- or two-byte value
+inst	NOP
+	output { opcode }
+	microcode
+	{
+	};
+
+inst	HLT
+	output { opcode }
+	{
+		HLT;
+	};
 
 inst	JMPR	v
-{
-	read[v] write8[IDX]
-	read16[PC] ADD-IDX write16[PC]
-}
+	// the 'by v' part says, "For each value of v, generate a new opcode
+	// if the v set has a pipe in it { A B | F L }, then four opcodes
+	// are generated. The ones for A and B are single-byte while the ones for F and L 
+	// are double-byte
+	output by v
+	when v in { sb } { opcode v }
+	else { opcode }
+
+	microcode {
+		read[v] write8[IDX]
+		read16[PC] ADD-IDX write16[PC]
+	};
 	
 inst	JMP		vv
-{
-	read[(PC16)]
-	write16[PC]
-}
+	output by vv { opcode vv }
+	microcode
+	{
+		read[(PC16)]
+		write16[PC]
+	};
 
-inst	CALL	vv
+inst	CALL	vv		output by vv { opcode vv }
 {
 	read16[PC] write16[ALU]
 	write[(SP16)] 
 	read[(PC16)]
 	read16[ALU] write16[PC]
-}
+};
 
-inst	JMPR	f, v 
+inst	JMPR	f, v 	output by f, v { opcode v }
 {
-	read[(PC8)]										; get the relative jump amount into IDX
-	!test(f) EOI									; if the flag is on, skip the rest of the 
+	read[(PC8)]													// get the relative jump amount into IDX
+	!test(f) EOI												// if the flag is on, skip the rest of the 
 
-	read16[PC] ADD-16 write16[PC]					; jump to new address
-}
+	read16[PC] ADD-16 write16[PC]								// jump to new address
+};
 
-inst	JMP		f, vv
+inst	JMP		f, vv	output by f, vv { opcode vv }
 {
-	read[(PC16)]									; load address into ALU
-	!test(f) EOI									; if the flag is on, skip the rest of the 
-	read16[ALU] write16[PC]							; jump to new address
-}
+	read[(PC16)]												// load address into ALU
+	!test(f) EOI												// if the flag is on, skip the rest of the 
+	read16[ALU] write16[PC]										// jump to new address
+};
 
-inst	CALL	f, vv
+inst	CALL	f, vv	output by f, vv { opcode vv }
 {
-	read[(PC16)]										; load address into ALU
+	read[(PC16)]												// load address into ALU
 	!test(f) EOI
 	read16[ALU] write16[MR]
 	
-	read16[PC] write16[ALU]								; get return address to put
-	write[(SP16)]										; push return address
+	read16[PC] write16[ALU]										// get return address to put
+	write[(SP16)]												// push return address
 	
-	read16[MR] write16[PC]								; jump to routine
-}
+	read16[MR] write16[PC]										// jump to routine
+};
 
-inst	ENTER	b
+inst	ENTER	b		output { opcode b }
 {
-	read16[FP] write16[ALU] 							; move FP to ALU for push
-	write[(SP16)]										; push
-	read16[SP] write16[FP]								; set FP to SP; this is the base for the frame
+	read16[FP] write16[ALU] 									// move FP to ALU for push
+	write[(SP16)]												// push
+	read16[SP] write16[FP]										// set FP to SP; this is the base for the frame
 	
-	read[(PC8)]											; get the frame size in bytes into ALU-L
+	read[(PC8)]													// get the frame size in bytes into ALU-L
 	
-	read16[SP] SUB-IDX DEC-16 write16[MR]				; subtract frame size to get first byte of local storage
-														;	also, we want to make sure that the first INC-16 makes MR point to first byte and not second
-	read16[MR] write16[SP]								; set new stack pointer to bottom of local storage (first push will go below it)
+	read16[SP] SUB-IDX DEC-16 write16[MR]						// subtract frame size to get first byte of local storage
+																//	also, we want to make sure that the first INC-16 makes MR point to first byte and not second
+	read16[MR] write16[SP]										// set new stack pointer to bottom of local storage (first push will go below it)
 	
-clear:
-	WRITEMEM read16[MR] INC-MR write16[MR] SET-BUS-0	; set memory to 0, advance pointer
-	read8[IDX] DEC-8 write8[IDX]						; decrement counter
-	jump-t-nz[clear]									; repeat if the counter != 0
-}
+clear:															// this label defines a T state that can be jumped to; since there isn't a clear way
+																//		to know how many steps led up to this one without deep analysis, a label
+																//		lets the compiler do it for you.
+	WRITEMEM read16[MR] INC-16 write16[MR] SET-BUS-0			// set memory to 0, advance pointer
+	read8[IDX] DEC-8 write8[IDX]								// decrement counter
+	set-t-nz[clear]												// repeat if the counter != 0
+};
 
-inst	EXIT
+inst	EXIT			output { opcode }
 {
-	read16[SP] write16[FP]								; set SP = FP
-	read[(SP16)]										; get caller's FP value into ALU
-	read16[ALU] write16[FP]								; reset FP to caller's value
+	read16[SP] write16[FP]										// set SP = FP
+	read[(SP16)]												// get caller's FP value into ALU
+	read16[ALU] write16[FP]										// reset FP to caller's value
 	
-	read[(SP16)]										; get return address into ALU
-	read16[ALU] write16[PC]								; set PC to return address
-}
+	read[(SP16)]												// get return address into ALU
+	read16[ALU] write16[PC]										// set PC to return address
+};
 
-inst	EXIT	b
+inst	EXIT	b		output { opcode b }
 {
-	read16[SP] write16[FP]								; set SP = FP
-	read[(SP16)]										; get caller's FP value into ALU
-	read16[ALU] write16[FP]								; reset FP to caller's value
+	read16[SP] write16[FP]										// set SP = FP
+	read[(SP16)]												// get caller's FP value into ALU
+	read16[ALU] write16[FP]										// reset FP to caller's value
 
-	read[(PC8)] write8[IDX]								; get the number of byte to pop on return
+	read[(PC8)] write8[IDX]										// get the number of byte to pop on return
 
-	read[(SP16)]										; get return address into ALU
-	read16[ALU] write16[PC]								; set PC to return address
+	read[(SP16)]												// get return address into ALU
+	read16[ALU] write16[PC]										// set PC to return address
 	
-	read16[SP] ADD-IDX write16[SP]						; pop whatever parameters were expected
-}
+	read16[SP] ADD-IDX write16[SP]								// pop whatever parameters were expected
+};
 
-inst	RET
+inst	RET				output { opcode }
 {
-	read[(SP16)]										; get return address into ALU
-	read16[ALU] write16[PC]								; set PC to return address
-}
+	read[(SP16)]												// get return address into ALU
+	read16[ALU] write16[PC]										// set PC to return address
+};
 
-inst	RET		b
+inst	RET		b		output { opcode b }
 {
-	read[(SP16)]										; get return address into ALU
-	read[(PC8)] write8[IDX]								; get number of bytes to pop on return
-	read16[ALU] ADD-IDX write16[SP]						; reset SP to skip bytes
-}
+	read[(SP16)]												// get return address into ALU
+	read[(PC8)] write8[IDX]										// get number of bytes to pop on return
+	read16[ALU] ADD-IDX write16[SP]								// reset SP to skip bytes
+};
 
-inst	INC		r
+inst	INC		r		output by r { opcode }
 {
-	read[r] ALUCMD-INC write[r]							; get value of r, increment it, put it back in r
-}
+	read[r] ALUCMD-INC write[r]									// get value of r, increment it, put it back in r
+};
 
-inst	INCW	rr
+inst	INCW	rr		output by rr { opcode }
 when rr in { (HL16) }
 {
-	read[(HL16)]										; get value at (HL) into ALU
-	read16[ALU] ALUCMD-INC16 write16[(HL16)]			; the alu puts its value on the address bus (16-bit op)
+	read[(HL16)]												// get value at (HL) into ALU
+	read16[ALU] ALUCMD-INC16 write16[(HL16)]					// the alu puts its value on the address bus (16-bit op)
 	
 }
-when rr in { (FP+[ri])(16) }
+when rr in { (FP+[ri]16) }
 {
-	read[(FP+[ri])(16)]									; get 16-bit value at FP+ri into ALU; IDX holds ri on return
-	read16[ALU] ALUCMD-INC16 write16[ALU]				; inc our value
+	read[(FP+[ri]16)]											// get 16-bit value at FP+ri into ALU; IDX holds ri on return
+	read16[ALU] ALUCMD-INC16 write16[ALU]						// inc our value
 	
 	// we have to do this manually because if ri is sb, the value has already been read from the instruction
-	WRITEMEM read16[FP] ADD-IDX read8[ALU:L]			; write lower byte of incremented value
-	WRITEMEM read16[FP] ADD-IDX INC-16 read8[ALU:H]		; write upper byte of inc'd value
+	WRITEMEM read16[FP] ADD-IDX read8[ALU:L]					// write lower byte of incremented value
+	WRITEMEM read16[FP] ADD-IDX INC-16 read8[ALU:H]				// write upper byte of inc'd value
 }
 // this is an optional, throw-away to make the default case stand out better
 when rr in { BC DE HL FP SP }
@@ -383,95 +437,130 @@ when rr in { BC DE HL FP SP }
 	read16[rr] INC-16 write16[rr]
 }
 
-
-inst	DEC		r
+inst	DEC		r		output by r { opcode }
 	when r is { A } {
 		ALU-READ-A ALUCMD-INC ALU-WRITE-A
 	}
+
+/********************************************************/
+// when a when passes, the value of r is temporarily change to the set it matched
+// this allows saying 'write8[r]' instead of breaking it down by register
+
 	when r is { (HL8) }
 	{
 		read[(HL8)] write8[ALU-L]
 		ALUCMD-DEC read8[ALUOUT:L] write8[r]
 	}
-	when r is { (FP+[ri])(8) }
+/**********************************************************/
+
+	when r is { (FP+[ri]8) }
 	{
-		read[(FP+[ri])(8)]								; get value at this address into ALU-L; ri in IDX
-		WRITEMEM read16[FP] ADD-IDX ALUCMD-DEC read8[ALUOUT:L] ; inc value in ALU:L, store the output to (fp+ri)
+		read[r]													// get value at this address into ALU-L; ri in IDX
+		WRITEMEM read16[FP] ADD-IDX ALUCMD-DEC read8[ALUOUT:L]	// inc value in ALU:L, store the output to (fp+ri)
 	}
 	else
 	{
-		read8[r] write8[ALU:L]							; get value to increment
-		ALUCMD-DEC read8[ALUOUT:L] write8[r]			; increment and store result
-	}
+		read8[r] write8[ALU:L]									// get value to increment
+		ALUCMD-DEC read8[ALUOUT:L] write8[r]					// increment and store result
+	};
 
-inst	DECW	rr							
+inst	DECW	rr		output by rr { opcode }
+{
+};
 
-inst	PUSH	rrmulti
+inst	PUSH	rrmulti		output by rrmulti { opcode }
 	{
 		read[rrmulti]
-	}
-inst	POP		rrmulti
-
-inst	MOV		A, v
-	{	read[A][v]	}
+	};
 	
-inst	MOV		r, A					
-	{	read[r][A]	}
+inst	POP		rrmulti 	output by rrmulti { opcode }
+{
+};
+
+inst	MOV		A, v		
+	when v in { b }			output { opcode b }
+	{	read[(PC8)] write[A] };
+	
+	when v in { (HL) (SP) }		output { opcode }
+	{	read[v] write[A] }
+	
+	when v in { (FP+[ri]8) output ???
+	{ read[FP+[ri]8)] write[A] }
+
+	else					output by v { opcode }
+	{	read[v] write[A] }
+	
+	
+inst	MOV		r, A		output by r { opcode }		
+	when v in { b }			output { opcode b }
+	{	read[(PC8)] write[A] };
+	
+	when v in { (HL) }		output { opcode }
+	{	read[(HL)] write[A] }
+	
+	when v in { (FP+[ri]8) output ???
+	{ read[FP+[ri]8)] write[A] }
+
+	else					output by v { opcode }
+	{	read[v] write[A] }
+	
 	
 inst	MOV		F, |v
+{
+};
 
-inst	MOV		r, v
+inst	MOV		r, v		output by r, v { opcode v }
 	when r in { B C D E H L (HL) (FP+[ri]) }
 	{
 		read[v][r]
-	}
+	};
 
 inst	MOV		rr, vv
 	when rr in { BC DE HL SP FP (HL) (FP+[ri]) }	
 	{
 		read[vv][rr]
-	}
+	};
 	
 inst	AND		A, v
 	{	
 		read[v] write8[ALU:H]
 		ALUCMD-AND read8[ALUOUT:L] write8[A]
 		write[A][ALU-OUT]
-	}		
+	};		
 		
 inst	OR		A, v
 	{	
-		read[v][ALU-R] ALUCMD-OR
+		read[v][ALU-R] alu-or
 		write[A][ALU-OUT]
-	}		
+	};		
 
 inst	XOR		A, v
 	{	
-		read[v][ALU-R] ALUCMD-XOR
+		read[v][ALU-R] alu-xor
 		write[A][ALU-OUT]
-	}		
+	};		
 
 inst	ADD		A, v
 	{	
-		read[v][ALU-R] ALUCMD-ADD
+		read[v][ALU-R] alu-add
 		write[A][ALU-OUT]
 	}		
 
 inst	ADC		A, v
 	{	
-		read[v][ALU-R] ALUCMD-ADC
+		read[v][ALU-R] alu-adc
 		write[A][ALU-OUT]
 	}		
 
 inst	SUB		A, v
 	{	
-		read[v][ALU-R] ALUCMD-SUB
+		read[v][ALU-R] alu-sub
 		write[A][ALU-OUT]
 	}		
 
 inst	SBC		A, v
 	{	
-		read[v][ALU-R] ALUCMD-SBC
+		read[v][ALU-R] alu-subc
 		write[A][ALU-OUT]
 	}		
 
@@ -479,54 +568,149 @@ inst	TEST	fo
 
 inst	ROL		A, v
 	{	
-		read[v][ALU-R] ALUCMD-ROL
+		read[v][ALU-R] alu-rol
 		write[A][ALU-OUT]
 	}		
 
 inst	ROR		A, v
 	{	
-		read[v][ALU-R] ALUCMD-ROR
+		read[v][ALU-R] alu-ror
 		write[A][ALU-OUT]
 	}		
 
 inst	RCL		A, v
 	{	
-		read[v][ALU-R] ALUCMD-RCL
+		read[v][ALU-R] alu-rcl
 		write[A][ALU-OUT]
 	}		
 
 inst	RCR		A, v
 	{	
-		read[v][ALU-R] ALUCMD-RCR
+		read[v][ALU-R] alu-rcr
 		write[A][ALU-OUT]
 	}		
 
 inst	SLL		A, v
 	{	
-		read[v][ALU-R] ALUCMD-SLL
+		read[v][ALU-R] alu-sll
 		write[A][ALU-OUT]
 	}		
 
 inst	SLR		A, v
 	{	
-		read[v][ALU-R] ALUCMD-SLR
+		read[v][ALU-R] alu-slr
 		write[A][ALU-OUT]
 	}		
 
 inst	SAL		A, v
 	{	
-		read[v][ALU-R] ALUCMD-SAL
+		read[v][ALU-R] alu-sal
 		write[A][ALU-OUT]
 	}		
 
 inst	SAR		A, v
 	{	
-		read[v][ALU-R] ALUCMD-SAR
+		read[v][ALU-R] alu-sar
 		write[A][ALU-OUT]
 	}		
 
 inst	IN		A, |v
 inst	OUT		|v, A	
 
+/*
 
+8-bit bus
+
+register chip: 74LS670: 4x4
+
+
+Assuming 4x4 register chips:
+
+AF
+BC
+DE
+HL
+
+A
+AH
+AL
+
+
+
+
+F			Flags
+
+
+16-bit
+
+ALU			ALU 
+
+FP
+SP
+PC
+MR
+
+-----------------------
+All 16-bit
+
+This set is special:
+0	A			Accumulator (really, an ALU register; primary input, main output)
+1	ALUOUT
+2	IX			Index, 3d ALU input (internal)
+				Can switch between these for input
+				
+4	FLAGS		Flags
+5	PC			Program counter
+6	TR			Temporary register
+
+7	FP			Frame pointer--can only be set by ENTER/EXIT
+				When used as a register, it's always indexed
+
+Regsister file
+
+0	B			General purpose, 16-bit
+1	C
+2	D
+3	E
+4	F
+5	SP			Stack pointer
+
+			Not so general purpose
+
+inst with A2
+	jmp		A
+	load	A, B-I
+	load	A, 
+	
+	
+ALU fuctions
+	+
+	-
+	+c
+	-c
+	S/ROT (8 total)
+	AND
+	OR
+	XOR
+	TEST
+
+
+4 bits of reg addr
+
+
+
+Can transfer:
+	A -> any, except PC
+	any -> A, except PC
+	
+0000 xxxx		move a, reg
+0000 1110		move a, b
+0000 1111		move a, w
+0001 xxxx		move reg, a
+0010 0xxx		move a, (reg) b/c/d/e/f/sp/fp+ix
+0010 1xxx		move (xxx), a  b/c/d/e/f/sp/fp+ix
+
+
+
+*/
 

@@ -1,4 +1,4 @@
-﻿grammar MachineCodeDefintion
+﻿grammar MachineCodeDefinition;
 
 @parser::header 
 {
@@ -10,81 +10,107 @@ using MachineCode.Parser;
 using MachineCode.Parser;
 }
 
-file        :   lines+=
-                (   lines+=lineDefinition
-                |   registers+=registerDefinition
-                |   flags+=flagDefinition
-                |   macros+=macroDefinition
-                |   instructions+=instructionDefinition
-                |   types+=typeDefinition
-                )+
+file        :   definitions+=definition
+            ;
+
+definition  :   lines+=lineDefinition
+            |   registers+=registerDefinition
+            |   flags+=flagDefinition
+            |   macros+=macroDefinition
+            |   instructions+=instructionDefinition
+            |   types+=typeDefinition
+            |   sets+=setDefinition
             ;
 
 lineDefinition
-            :   THING IS LINE NUMBER NEWLINE+
+            :   THING IS LINE numberList SEMI
             ;
 
 registerDefinition
             :   THING IS size=NUMBER BIT INTERNAL? REGISTER NUMBER
-                actions+=readOrWriteDefinition+ NEWLINE+
+                SEMI
             ;
 
 readOrWriteDefintion
-            :   direction=( READ | WRITE | BEFORE ) (WHEN condition)? NEWLINE*
-                (   must=MUST CONBINE
-                |   cannot=CANNOT COMBINE
-                |   oneLine=thingList
-                |   LBRACE NEWLINE* lines+=thingList ( NEWLINE+ lines+=thingList )* NEWLINE* RBRACE
+            :   direction=( READ | WRITE | BEFORE ) (WHEN condition)? outputDefinition?
+                (   LBRACE lines+=thingList+ RBRACE
+                |   lines+=thingList
                 )
             ;
 
-condition   :   THING IN thingList ( FAIL STRING )?
+condition   :   THING not=NOT? IN thingList
+            ;
+
+outputDefinition
+            :   OUTPUT ( BY thingList ) LBRACE OPCODE? thingList RBRACE
             ;
 
 flagDefinition
-            :   THING IS FLAG NUMBER ( BANG THING )? LINE NUMBER
+            :   THING ( BANG THING )? IS FLAG NUMBER LINE NUMBER SEMI
             ;
 
 macroDefinition
-            :   THING (LBRACKET param=MACRO RBRACKET)? IS
-                (   WRITE ( valueMacro=MACRO | valueThing=THING | valueNumber=NUMBER ) INTO LINE numberList
-                |   FLAG NUMBER ( BANG MACRO )? LINE NUMBER
-                |   (READ | WRITE) LBRACKET ( targetMacro=MACRO | targetThing=THING | targetNumber=NUMBER) RBRACKET
-                |   members=thingList
-                )
-                IS LINE NUMBER
+            :   THING (LBRACKET param=MACRO RBRACKET)? IS outputDefinition?
+                (   CANNOT COMBINE
+                |   MUST COMBINE
+                )?
+
+                lines+=macroLine+
+                SEMI
+            ;
+
+instructionDefinition
+            :   INST opcode=THING thingList outputDefinition?
+                MICROCODE? LBRACE lines+=macroLine+ RBRACE
             ;
 
 macroLine   :   macroCall
-            |   WRITE ( MACRO | THING | NUMBER ) INTO LINES numberList
-            |   
+            |   WRITE ( MACRO | THING | NUMBER ) INTO LINE numberList
+            |   readOrWriteDefintion
+            ;  
 
-types       :   MACRO IS mode=(SIGNED | UNSIGNED)? type=( BYTE | WORD )
+typeDefinition
+            :   MACRO IS sign=(SIGNED | UNSIGNED)? type=( BYTE | WORD )
+            ;
+
+setDefinition
+            :   MACRO IS theSet SEMI
+            ;
+
+theSet      :   LBRACE
+                (   MACRO       // sb
+                |   THING       // A F H L BC DE (FP+[ri])
+                |   PIPE        // |
+                )*
+                RBRACE
             ;
 
 numberList  :   NUMBER+
+            |   NUMBER MINUS NUMBER
             ;
 
-thingList   :   label=macro COLON )? things+=macroCall ( COMMA? PIPE? things+=macroCall )*
-            |   LBRACE things+=macroCall ( COMMA things+=macroCall)* RBRACE
+thingList   :   ( PIPE? things+=macroCall )+
+            |   LBRACE ( PIPE? things+=macroCall )+ RBRACE
             ;
 
 macroCall   :   (   root=THING
                 |   ( READ | WRITE) LBRACKET ( MACRO | THING ) RBRACKET
-                |   LPAREN root=THING ( PLUS LBRACKET index=MACRO RBRACKET )? RPAREN
+                // how are we going to handle (FP+[ri])?
+                //|   LPAREN root=THING ( PLUS LBRACKET index=MACRO RBRACKET )? RPAREN
                     // root != index != param
                 )   ( LBRACKET param=(MACRO | THING | NUMBER) RBRACKET )?
             ;
-            
+
+
 
 fragment BINDIGIT
-            :   [01] ;
+            :   [01];
 
 fragment DECDIGIT
-            :   [0-9] ;
+            :   [0-9];
 
 fragment HEXDIGIT
-            :   [0-9a-fA-F] ;
+            :   [0-9a-fA-F];
 
 NUMBER      :   '0' BINDIGIT+
             |   HEXDIGIT+ [hH]
@@ -95,35 +121,70 @@ STRING      :   '"' ~('\n'|'\r')*? '"'
             |   '\'' ~('\n'|'\r')*? '\''
             ;
 
-BANG        :   '!' ;
-COLON       :   ':' ;
-EQ          :   '-' ;
-RBRACE      :   '{' ;
-LBRACE      :   '}; ;
-LBRACKET    :   '[' ;
-RBRACKET    :   ']' ;
-LPAREN      :   '(' ;
-RPAREN      :   ')' ;
+BANG        :   '!';
+COLON       :   ':';
+EQ          :   '=';
+MINUS       :   '-';
+PIPE        :   '|';
+SEMI        :   ';';
 
-BEFORE      :   'before'
-BIT         :   'bit' ;
-BYTE        :   'byte' ;
-FLAG        :   'flag' ;
-INST        :   'inst' 'ruction'? ;
-INTO        :   'into' ;
-IS          :   'is' ;
-LINE        :   'line' 's'? ;
-MULTI       :   'multi\w*byte' | 'multi-byte';
-READ        :   'read' ;
-REGISTER    :   'register' ;
-SIGNED      :   'signed' ;
-TEST        ;   'test' ;
-WORD        :   'word' ;
-WRITE       :   'write' ;
+RBRACE      :   '{';
+LBRACE      :   '}';
+LBRACKET    :   '[';
+RBRACKET    :   ']';
+LPAREN      :   '(';
+RPAREN      :   ')';
 
-MACRO       :   [a-z][a-z0-9-]* ;
-THING       :   [A-Z][A-Z0-9-]* ;
+BEFORE      :   'before';
+BIT         :   'bit';
+BY          :   'by';
+BYTE        :   'byte';
+CANNOT      :   'cannot';
+COMBINE     :   'combine';
+FLAG        :   'flag';
+INST        :   'inst' 'ruction'?;
+INTERNAL    :   'internal';
+IN          :   'in';
+INTO        :   'into';
+IS          :   'is';
+LINE        :   'line' 's'?;
+MICROCODE   :   'microcode';
+MULTI       :   'multi' WHITESPACE 'byte' | 'multi-byte' | 'multibyte';
+MUST        :   'must';
+NOT         :   'not';
+OPCODE      :   'opcode';
+OUTPUT      :   'output';
+READ        :   'read';
+REGISTER    :   'register';
+SIGNED      :   'signed';
+TEST        :   'test';
+UNSIGNED    :   'unsigned';
+WHEN        :   'when';
+WORD        :   'word';
+WRITE       :   'write';
+
+
+
+MACRO       :   [(a-z][a-z0-9-]* ;
+
+// the :L/:R is only used with 16-bit registers
+THING       :   [A-Z][A-Z0-9-]* ( ':' ( 'L' | 'R' ) )? 
+            //|   \( (?<register>[A-Z0-9]]+) ( \+ \[ (?<index>[A-Z0-9]+) ] )? \) ( \( (?<argument>[A-Z0-9]+) \) )?
+            ;
 
 NEWLINE     :   '\r'? '\n' ; // -> channel(HIDDEN);
 LINECOMMENT :   '//' ~('\n'|'\r')* -> channel(HIDDEN);
 BLOCKCOMMENT:   '/*' .*? '*/' -> channel(HIDDEN);
+
+// a comma(,) is whitespace in this langugage
+WHITESPACE  :   [ \t,] -> channel(HIDDEN);
+
+/*
+\( (?<register>:\w+) ( + \[ (?<index>:\w+)? ] )?
+
+(HL)
+(FP+[ri])
+(FP+[ri])(8) 
+
+( [+] \[ (?<index>:\w+)? ] )? ([(] (?<argument>:\w+) [)])?
+*/
